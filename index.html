@@ -86,17 +86,27 @@
       </section>
     </main>
 
-    <!-- Prompt bổ sung -->
-<div>
-  <label for="extraPrompt">Prompt bổ sung</label>
-  <textarea id="extraPrompt" rows="4" style="width:100%">
-Nếu đầu vào có nhiều hơn một phiên bản sản phẩm thì prompt tạo ra phải có đầy đủ các phiên bản sản phẩm giống bài viết gốc, trình bày gọn và khoa học đầy đủ nội dung các phiên bản và vẫn bám sát cấu trúc của bài template. Nội dung nào không có thì ghi N/A
-  </textarea>
-</div>
-
+    <!-- Phần 4: Prompt bổ sung -->
+    <section class="mt-6">
+      <div class="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm">
+        <div class="p-4 border-b border-neutral-200 dark:border-neutral-800 flex items-center justify-between">
+          <h2 class="font-semibold">4) Prompt bổ sung (lưu ý thêm cho GPT)</h2>
+          <div class="text-xs text-neutral-500" id="len4">0 ký tự</div>
+        </div>
+        <div class="p-4">
+          <textarea id="extraPrompt" rows="6" class="w-full resize-y rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 p-3">Nếu đầu vào có nhiều hơn một phiên bản sản phẩm thì prompt tạo ra phải có đầy đủ các phiên bản sản phẩm giống bài viết gốc, trình bày gọn và khoa học đầy đủ nội dung các phiên bản và vẫn bám sát cấu trúc của bài template. Nội dung nào không có thì ghi N/A</textarea>
+          <div class="mt-3 flex gap-2">
+            <button id="saveExtra" class="rounded-xl px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-700">Lưu prompt bổ sung</button>
+            <button id="loadExtra" class="rounded-xl px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-700">Tải prompt đã lưu</button>
+            <button data-copy="extraPrompt" class="copyBtn rounded-xl px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-700">Copy</button>
+            <button data-clear="extraPrompt" class="clearBtn rounded-xl px-3 py-2 text-sm border border-neutral-300 dark:border-neutral-700">Xoá</button>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <footer class="mt-6 text-xs text-neutral-500">
-      Lưu ý: N/A
+      Lưu ý: API key phải được đặt ở server (Vercel) qua Environment Variables, không nhúng vào frontend.
     </footer>
   </div>
 
@@ -105,19 +115,23 @@ Nếu đầu vào có nhiều hơn một phiên bản sản phẩm thì prompt t
     const inputInfo = el('inputInfo');
     const template = el('template');
     const output = el('output');
+    const extraPrompt = el('extraPrompt');
     const len1 = el('len1');
     const len2 = el('len2');
     const len3 = el('len3');
+    const len4 = el('len4');
 
     function updateLen(){
       len1.textContent = `${inputInfo.value.length} ký tự`;
       len2.textContent = `${template.value.length} ký tự`;
       len3.textContent = `${output.value.length} ký tự`;
+      len4.textContent = `${extraPrompt.value.length} ký tự`;
     }
     ['input','change'].forEach(evt=>{
       inputInfo.addEventListener(evt, updateLen);
       template.addEventListener(evt, updateLen);
       output.addEventListener(evt, updateLen);
+      extraPrompt.addEventListener(evt, updateLen);
     });
     updateLen();
 
@@ -137,6 +151,25 @@ Nếu đầu vào có nhiều hơn một phiên bản sản phẩm thì prompt t
       });
     });
 
+    // Lưu/tải template & extraPrompt vào trình duyệt
+    el('saveTemplate').addEventListener('click', ()=>{
+      localStorage.setItem('product_template_v1', template.value || '');
+      alert('Đã lưu template vào trình duyệt.');
+    });
+    el('loadTemplate').addEventListener('click', ()=>{
+      template.value = localStorage.getItem('product_template_v1') || '';
+      updateLen();
+    });
+    el('saveExtra').addEventListener('click', ()=>{
+      localStorage.setItem('extra_prompt_v1', extraPrompt.value || '');
+      alert('Đã lưu prompt bổ sung.');
+    });
+    el('loadExtra').addEventListener('click', ()=>{
+      extraPrompt.value = localStorage.getItem('extra_prompt_v1') || extraPrompt.value;
+      updateLen();
+    });
+
+    // Chèn template mẫu
     el('useSample').addEventListener('click', ()=>{
       template.value = `# Tiêu đề: **{Tên sản phẩm}**
 
@@ -166,19 +199,17 @@ Nếu đầu vào có nhiều hơn một phiên bản sản phẩm thì prompt t
       updateLen();
     });
 
-    el('saveTemplate').addEventListener('click', ()=>{
-      localStorage.setItem('product_template_v1', template.value || '');
-      alert('Đã lưu template vào trình duyệt.');
-    });
-    el('loadTemplate').addEventListener('click', ()=>{
-      template.value = localStorage.getItem('product_template_v1') || '';
-      updateLen();
-    });
-
     async function generate(){
       const model = el('model').value;
       const temperature = parseFloat(el('temperature').value || '0.5');
-      const payload = { model, temperature, productInfo: inputInfo.value, template: template.value };
+      const payload = {
+        model,
+        temperature,
+        productInfo: inputInfo.value,
+        template: template.value,
+        extraPrompt: extraPrompt.value  // << thêm prompt bổ sung
+      };
+
       output.value = '';
       updateLen();
       el('generateBtn').disabled = true; el('generateBtn').textContent = 'Đang tạo…';
@@ -189,7 +220,7 @@ Nếu đầu vào có nhiều hơn một phiên bản sản phẩm thì prompt t
           body: JSON.stringify(payload)
         });
         if(!res.ok) throw new Error(await res.text());
-        // hỗ trợ cả streaming (text/event-stream) lẫn JSON thường
+
         const ct = res.headers.get('content-type') || '';
         if(ct.includes('text/event-stream')){
           const reader = res.body.getReader();
