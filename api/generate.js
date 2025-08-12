@@ -1,37 +1,34 @@
 // /api/generate.js — Vercel Serverless Function (Node runtime)
-// Yêu cầu: `OPENAI_API_KEY` trong Project → Settings → Environment Variables
+// Yêu cầu: OPENAI_API_KEY trong Project → Settings → Environment Variables
 import { OpenAI } from 'openai';
 
 export default async function handler(req, res) {
-  // Chỉ nhận POST
   if (req.method !== 'POST') {
     res.status(405).send('Method Not Allowed');
     return;
   }
 
   try {
-    // Kiểm tra API key
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       res.status(500).send('Missing OPENAI_API_KEY on server');
       return;
     }
 
-    // Đọc body
+    // ⬇️ NHẬN THÊM extraPrompt
     const {
       model = 'gpt-5',
       temperature: tempRaw = 0.5,
       productInfo = '',
       template = '',
+      extraPrompt = '',   // << thêm
     } = req.body || {};
 
-    // Validate input tối thiểu
     if (!template?.trim() || !productInfo?.trim()) {
       res.status(400).json({ error: 'Thiếu template hoặc productInfo' });
       return;
     }
 
-    // Chuẩn hóa temperature (0–2)
     let temperature = Number.isFinite(+tempRaw)
       ? Math.max(0, Math.min(2, +tempRaw))
       : 0.5;
@@ -46,11 +43,19 @@ export default async function handler(req, res) {
       'Văn phong tiếng Việt rõ ràng, gọn gàng; dùng markdown (tiêu đề/bold) như template.',
     ].join(' ');
 
+    // Ghép thêm HƯỚNG DẪN BỔ SUNG nếu có
+    const extraBlock = extraPrompt?.trim()
+      ? `
+
+# HƯỚNG DẪN BỔ SUNG
+${extraPrompt.trim()}`
+      : '';
+
     const userPrompt = `# TEMPLATE_USER
 ${template}
 
 # PRODUCT_INFO
-${productInfo}
+${productInfo}${extraBlock}
 
 # YÊU CẦU ĐẦU RA
 - Viết lại theo đúng cấu trúc/template.
@@ -66,10 +71,8 @@ ${productInfo}
       ],
     };
 
-    // Gọi API: thử gửi temperature qua config trước (hợp với spec mới),
-    // nếu 400/unsupported → fallback gọi lại không kèm temperature.
+    // Thử gửi temperature qua config trước; nếu 400/unsupported → fallback
     let response;
-
     try {
       response = await client.responses.create({
         ...basePayload,
@@ -85,32 +88,28 @@ ${productInfo}
         msg.includes('temperature');
 
       if (isUnsupported) {
-        // Fallback: gọi lại không có temperature
-        response = await client.responses.create(basePayload);
+        response = await client.responses.create(basePayload); // fallback
       } else {
         throw err;
       }
     }
 
-    // Lấy text gọn nhất
     const text = response?.output_text || '';
 
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.status(200).json({ text });
   } catch (e) {
-    // Log chi tiết lên Vercel Logs để debug
     console.error('OpenAI error:', e?.status || e?.code, e?.message, e?.response?.data);
 
-    // Map lỗi phổ biến để hiển thị thân thiện
     const status = e?.status || 500;
     let message = e?.message || 'Server error';
 
     if (status === 401) {
       message = '401 Unauthorized — Sai hoặc thiếu OPENAI_API_KEY (server).';
     } else if (status === 429) {
-      message = '429 Quota/Rate limit — Hãy kiểm tra Billing (Add payment method, Monthly budget > 0) hoặc thử lại sau.';
+      message = '429 Quota/Rate limit — Kiểm tra Billing (Add payment method, Monthly budget > 0) hoặc thử lại sau.';
     } else if (status === 400) {
-      message = '400 Bad Request — Tham số không hợp lệ (kiểm tra template, productInfo, hoặc tham số model).';
+      message = '400 Bad Request — Tham số không hợp lệ (kiểm tra template, productInfo, extraPrompt, hoặc model).';
     }
 
     res.status(status).send(message);
